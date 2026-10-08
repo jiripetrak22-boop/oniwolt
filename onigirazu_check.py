@@ -34,6 +34,9 @@ API_URL = (
     "https://consumer-api.wolt.com/consumer-api/consumer-assortment/v1/"
     f"venues/slug/{VENUE_SLUG}/assortment?language=cs"
 )
+STATUS_URL = (
+    f"https://consumer-api.wolt.com/order-xp/web/v1/venue/slug/{VENUE_SLUG}/dynamic/"
+)
 WOLT_LINK = f"https://wolt.com/cs/cze/prague/restaurant/{VENUE_SLUG}"
 
 
@@ -61,7 +64,24 @@ def send_telegram(text: str) -> None:
         r.read()
 
 
+def venue_status() -> tuple[bool, str]:
+    """Vrátí (je_otevřeno, text). Bere stav z Woltu, ne z otevírací doby."""
+    v = http_get_json(STATUS_URL)["venue"]
+    st = v.get("open_status") or v.get("delivery_open_status") or {}
+    is_open = bool(st.get("is_open")) and v.get("online", True)
+    if is_open:
+        return True, f"🟢 Otevřeno (zavírá v {st.get('next_close_time_localized', '?')})"
+    nxt = st.get("next_open", "")  # např. 2026-10-09T10:45:00+02:00
+    when = f" – otevírá {nxt[8:10]}.{nxt[5:7]}. v {nxt[11:16]}" if len(nxt) >= 16 else ""
+    return False, f"🔴 Zavřeno{when}"
+
+
 def check() -> str:
+    try:
+        is_open, status_line = venue_status()
+    except Exception as e:
+        is_open, status_line = True, f"⚠️ Stav otevření nezjištěn ({e})"
+
     data = http_get_json(API_URL)
 
     category = next(
@@ -77,14 +97,21 @@ def check() -> str:
     available = [s["name"] for s in sandwiches if not s.get("disabled_info")]
     unavailable = [s["name"] for s in sandwiches if s.get("disabled_info")]
 
-    if len(available) >= EXPECTED_COUNT:
+    if not is_open:
+        head = f"🔴 Onigirazu je zavřené – objednat teď nejde."
+        avail_label = f"V menu aktivních {len(available)}/{EXPECTED_COUNT} sendvičů:"
+    elif len(available) >= EXPECTED_COUNT:
         head = f"✅ Onigirazu: všech {EXPECTED_COUNT} sendvičů je k dispozici!"
+        avail_label = None
     else:
         head = (
             f"❌ Onigirazu: k dispozici jen {len(available)}/{EXPECTED_COUNT} sendvičů."
         )
+        avail_label = None
 
-    lines = [head, ""]
+    lines = [head, status_line, ""]
+    if avail_label:
+        lines.append(avail_label)
     lines += [f"• {n}" for n in available]
     if unavailable:
         lines += ["", "Nedostupné:"] + [f"✗ {n}" for n in unavailable]
