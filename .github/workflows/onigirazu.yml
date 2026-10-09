@@ -1,6 +1,10 @@
 name: Onigirazu check
 
 on:
+  workflow_dispatch:
+name: Onigirazu check
+
+on:
   schedule:
     - cron: "45 8 * * *"   # letní čas
     - cron: "45 9 * * *"   # zimní čas
