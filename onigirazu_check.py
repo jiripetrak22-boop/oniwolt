@@ -24,7 +24,7 @@ import urllib.request
 # Hodnoty se berou z GitHub Secrets / proměnných prostředí; pokud tam nejsou,
 # použijí se tyto. POZOR: token v kódu = kdokoli s přístupem k repu ovládá bota.
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN") or "8817784786:AAFktjq6Wnh7OUM4CcAbpWHv9Ypu85rdcNo"
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID") or "8887757178"
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID") or "-5475057208"
 
 VENUE_SLUG = "onigirazu"
 CATEGORY_SLUG = "onigirazu-2"   # kategorie 🍙ONIGIRAZU na Woltu
