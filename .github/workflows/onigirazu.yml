@@ -2,38 +2,13 @@ name: Onigirazu check
 
 on:
   workflow_dispatch:
-name: Onigirazu check
-
-on:
-  schedule:
-    - cron: "45 8 * * *"   # letní čas
-    - cron: "45 9 * * *"   # zimní čas
-  workflow_dispatch:
 
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
-      - name: Počkat na 11:05 v Praze
-        if: github.event_name == 'schedule'
-        id: wait
-        run: |
-          if [ "$(TZ=Europe/Prague date +%z)" = "+0200" ]; then
-            expected="45 8 * * *"
-          else
-            expected="45 9 * * *"
-          fi
-          if [ "${{ github.event.schedule }}" != "$expected" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          target=$(TZ=Europe/Prague date -d "today 11:05" +%s)
-          diff=$((target - $(date +%s)))
-          if [ "$diff" -gt 0 ]; then sleep "$diff"; fi
-
       - name: Kontrola a zpráva do Telegramu
-        if: steps.wait.outputs.skip != 'true'
         run: python3 onigirazu_check.py
