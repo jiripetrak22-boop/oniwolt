@@ -23,7 +23,7 @@ import urllib.request
 # --- Telegram (bot @Oniwolt_bot) ---
 # Hodnoty se berou z GitHub Secrets / proměnných prostředí; pokud tam nejsou,
 # použijí se tyto. POZOR: token v kódu = kdokoli s přístupem k repu ovládá bota.
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN") or "8817784786:AAFktjq6Wnh7OUM4CcAbpWHv9Ypu85rdcNo"
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN") or "8817784786:AAHHZ9fMoRETAc3WL18NA7SZLB6L69UUNXk"
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID") or "-5475057208"  # víc příjemců: "ID1,ID2"
 
 VENUE_SLUG = "onigirazu"
