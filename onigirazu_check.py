@@ -17,18 +17,26 @@ Bez externích knihoven – stačí Python 3.
 import json
 import os
 import sys
+import unicodedata
 import urllib.parse
 import urllib.request
 
 # --- Telegram (bot @Oniwolt_bot) ---
 # Hodnoty se berou z GitHub Secrets / proměnných prostředí; pokud tam nejsou,
 # použijí se tyto. POZOR: token v kódu = kdokoli s přístupem k repu ovládá bota.
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN") or "8817784786:AAHHZ9fMoRETAc3WL18NA7SZLB6L69UUNXk"
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN") or "8817784786:AAFktjq6Wnh7OUM4CcAbpWHv9Ypu85rdcNo"
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID") or "-5475057208"  # víc příjemců: "ID1,ID2"
 
 VENUE_SLUG = "onigirazu"
-CATEGORY_SLUG = "onigirazu-2"   # kategorie 🍙ONIGIRAZU na Woltu
-EXPECTED_COUNT = 5
+# Sledované kategorie: (hledané slovo v názvu kategorie, název pro zprávu)
+# Hledá se bez ohledu na velikost písmen a diakritiku.
+CATEGORIES = [
+    ("onigirazu", "sendvičů"),
+]
+# Sledované položky podle slova v názvu položky (kdekoli v menu, nezáleží na kategorii)
+ITEM_KEYWORDS = [
+    ("tom kha", "polévek"),
+]
 
 API_URL = (
     "https://consumer-api.wolt.com/consumer-api/consumer-assortment/v1/"
@@ -95,6 +103,16 @@ def venue_status() -> tuple[bool, str]:
     return True, f"🟢 Otevřeno (zavírá v {st.get('next_close_time_localized', '?')})"
 
 
+def normalize(text: str) -> str:
+    text = unicodedata.normalize("NFD", text.lower())
+    return "".join(c for c in text if not unicodedata.combining(c))
+
+
+def is_unavailable(item: dict) -> bool:
+    # vypnuto/vyprodáno na Woltu, nebo nulový sklad
+    return bool(item.get("disabled_info")) or item.get("purchasable_balance") == 0
+
+
 def check() -> str:
     try:
         is_open, status_line = venue_status()
@@ -102,38 +120,55 @@ def check() -> str:
         is_open, status_line = True, f"⚠️ Stav otevření nezjištěn ({e})"
 
     data = http_get_json(API_URL)
-
-    category = next(
-        (c for c in data.get("categories", []) if c.get("slug") == CATEGORY_SLUG),
-        None,
-    )
-    if category is None:
-        return f"⚠️ Onigirazu: kategorie sendvičů na Woltu nenalezena.\n{WOLT_LINK}"
-
+    all_categories = data.get("categories", [])
     items = {i["id"]: i for i in data.get("items", [])}
-    sandwiches = [items[i] for i in category.get("item_ids", []) if i in items]
 
-    available = [s["name"] for s in sandwiches if not s.get("disabled_info")]
-    unavailable = [s["name"] for s in sandwiches if s.get("disabled_info")]
+    sections = []   # (popisek, dostupné, nedostupné)
+    problems = []
+    for key, label in CATEGORIES:
+        matches = [c for c in all_categories if key in normalize(c.get("name", ""))]
+        if not matches:
+            problems.append(f"⚠️ Kategorie „{key}“ ({label}) nenalezena.")
+            continue
+        found = [items[i] for c in matches for i in c.get("item_ids", []) if i in items]
+        sections.append((
+            label,
+            [x["name"] for x in found if not is_unavailable(x)],
+            [x["name"] for x in found if is_unavailable(x)],
+        ))
+
+    for key, label in ITEM_KEYWORDS:
+        found = [x for x in items.values() if key in normalize(x.get("name", ""))]
+        if not found:
+            problems.append(f"⚠️ Položka „{key}“ ({label}) v menu není.")
+            continue
+        sections.append((
+            label,
+            [x["name"] for x in found if not is_unavailable(x)],
+            [x["name"] for x in found if is_unavailable(x)],
+        ))
+
+    if problems:
+        names = ", ".join(c.get("name", "?") for c in all_categories)
+        problems.append(f"Kategorie na Woltu: {names}")
+
+    all_ok = bool(sections) and not problems and all(not un and av for _, av, un in sections)
 
     if not is_open:
         head = "🔴 Onigirazu teď nepřijímá objednávky."
-        avail_label = f"V menu aktivních {len(available)}/{EXPECTED_COUNT} sendvičů:"
-    elif len(available) >= EXPECTED_COUNT:
-        head = f"✅ Onigirazu: všech {EXPECTED_COUNT} sendvičů je k dispozici!"
-        avail_label = None
+    elif all_ok:
+        head = "✅ Onigirazu: vše je k dispozici!"
     else:
-        head = (
-            f"❌ Onigirazu: k dispozici jen {len(available)}/{EXPECTED_COUNT} sendvičů."
-        )
-        avail_label = None
+        head = "❌ Onigirazu: něco chybí."
 
-    lines = [head, status_line, ""]
-    if avail_label:
-        lines.append(avail_label)
-    lines += [f"• {n}" for n in available]
-    if unavailable:
-        lines += ["", "Nedostupné:"] + [f"✗ {n}" for n in unavailable]
+    lines = [head, status_line]
+    for label, av, un in sections:
+        total = len(av) + len(un)
+        lines += ["", f"{label}: {len(av)}/{total}"]
+        lines += [f"• {n}" for n in av]
+        lines += [f"✗ {n} (nedostupné)" for n in un]
+    if problems:
+        lines += [""] + problems
     lines += ["", WOLT_LINK]
     return "\n".join(lines)
 
