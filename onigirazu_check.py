@@ -28,14 +28,23 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN") or "8817784786:AAFktjq
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID") or "-5475057208"  # víc příjemců: "ID1,ID2"
 
 VENUE_SLUG = "onigirazu"
-# Sledované kategorie: (hledané slovo v názvu kategorie, název pro zprávu)
-# Hledá se bez ohledu na velikost písmen a diakritiku.
-CATEGORIES = [
-    ("onigirazu", "sendvičů"),
-]
-# Sledované položky podle slova v názvu položky (kdekoli v menu, nezáleží na kategorii)
-ITEM_KEYWORDS = [
-    ("tom kha", "polévek"),
+# Očekávané položky podle názvu (hledá se bez diakritiky a velkých písmen, stačí část názvu).
+# Wolt vyprodanou položku z menu odebere, proto se hlídá, jestli každá z těchto položek v menu je.
+# Změní-li se nabídka, uprav tento seznam.
+WATCH = [
+    # (název skupiny, slovo v kategorii pro hlášení nových položek nebo None, [očekávané položky])
+    ("sendvičů", "onigirazu", [
+        "Batát zelí",
+        "Kimči tofu",
+        "Mango-avokádo",
+        "Tempeh špenát",
+        "Brokolice kešu",
+        "Spring",
+    ]),
+    ("polévek", None, [
+        "Tom Kha malá",
+        "Tom Kha velká",
+    ]),
 ]
 
 API_URL = (
@@ -113,6 +122,10 @@ def is_unavailable(item: dict) -> bool:
     return bool(item.get("disabled_info")) or item.get("purchasable_balance") == 0
 
 
+def clean(name: str) -> str:
+    return normalize(name).replace("novinka -", "").strip()
+
+
 def check() -> str:
     try:
         is_open, status_line = venue_status()
@@ -121,38 +134,31 @@ def check() -> str:
 
     data = http_get_json(API_URL)
     all_categories = data.get("categories", [])
-    items = {i["id"]: i for i in data.get("items", [])}
+    items = list(data.get("items", []))
 
-    sections = []   # (popisek, dostupné, nedostupné)
-    problems = []
-    for key, label in CATEGORIES:
-        matches = [c for c in all_categories if key in normalize(c.get("name", ""))]
-        if not matches:
-            problems.append(f"⚠️ Kategorie „{key}“ ({label}) nenalezena.")
-            continue
-        found = [items[i] for c in matches for i in c.get("item_ids", []) if i in items]
-        sections.append((
-            label,
-            [x["name"] for x in found if not is_unavailable(x)],
-            [x["name"] for x in found if is_unavailable(x)],
-        ))
+    groups = []   # (popisek, dostupné, problémové [(název, důvod)], nové v menu)
+    for label, cat_key, expected in WATCH:
+        ok, bad, matched_ids = [], [], set()
+        for exp in expected:
+            hit = next((i for i in items if normalize(exp) in normalize(i.get("name", ""))), None)
+            if hit is None:
+                bad.append((exp, "chybí v menu"))
+            else:
+                matched_ids.add(hit["id"])
+                if is_unavailable(hit):
+                    bad.append((hit["name"], "nedostupné"))
+                else:
+                    ok.append(hit["name"])
+        new = []
+        if cat_key:
+            by_id = {i["id"]: i for i in items}
+            for c in all_categories:
+                if cat_key in normalize(c.get("name", "")):
+                    new += [by_id[i]["name"] for i in c.get("item_ids", [])
+                            if i in by_id and i not in matched_ids and not is_unavailable(by_id[i])]
+        groups.append((label, ok, bad, new, len(expected)))
 
-    for key, label in ITEM_KEYWORDS:
-        found = [x for x in items.values() if key in normalize(x.get("name", ""))]
-        if not found:
-            problems.append(f"⚠️ Položka „{key}“ ({label}) v menu není.")
-            continue
-        sections.append((
-            label,
-            [x["name"] for x in found if not is_unavailable(x)],
-            [x["name"] for x in found if is_unavailable(x)],
-        ))
-
-    if problems:
-        names = ", ".join(c.get("name", "?") for c in all_categories)
-        problems.append(f"Kategorie na Woltu: {names}")
-
-    all_ok = bool(sections) and not problems and all(not un and av for _, av, un in sections)
+    all_ok = all(not bad for _, _, bad, _, _ in groups)
 
     if not is_open:
         head = "🔴 Onigirazu teď nepřijímá objednávky."
@@ -162,13 +168,12 @@ def check() -> str:
         head = "❌ Onigirazu: něco chybí."
 
     lines = [head, status_line]
-    for label, av, un in sections:
-        total = len(av) + len(un)
-        lines += ["", f"{label}: {len(av)}/{total}"]
-        lines += [f"• {n}" for n in av]
-        lines += [f"✗ {n} (nedostupné)" for n in un]
-    if problems:
-        lines += [""] + problems
+    for label, ok, bad, new, total in groups:
+        lines += ["", f"{label}: {len(ok)}/{total}"]
+        lines += [f"• {n}" for n in ok]
+        lines += [f"✗ {n} ({why})" for n, why in bad]
+        if new:
+            lines += ["", "➕ Nové v menu (není v seznamu hlídaných):"] + [f"• {n}" for n in new]
     lines += ["", WOLT_LINK]
     return "\n".join(lines)
 
