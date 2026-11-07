@@ -18,6 +18,7 @@ import json
 import os
 import sys
 import unicodedata
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -81,8 +82,14 @@ def send_telegram(text: str) -> None:
         try:
             with urllib.request.urlopen(url, data=data, timeout=20) as r:
                 r.read()
+        except urllib.error.HTTPError as e:
+            try:
+                body = e.read().decode("utf-8", "replace")
+            except Exception:
+                body = ""
+            errors.append(f"chat {chat_id}: HTTP {e.code} {body}")
         except Exception as e:
-            errors.append(f"{chat_id}: {e}")
+            errors.append(f"chat {chat_id}: {e}")
     if errors:
         raise RuntimeError("; ".join(errors))
 
@@ -187,7 +194,8 @@ def main() -> None:
     try:
         send_telegram(msg)
     except Exception as e:
-        print(f"Odeslání do Telegramu selhalo: {e}", file=sys.stderr)
+        # ::error:: se zobrazí přímo v přehledu běhu (Annotations)
+        print(f"::error title=Telegram::{e}")
         sys.exit(1)
 
 
