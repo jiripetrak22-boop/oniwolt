@@ -174,13 +174,19 @@ def check() -> str:
     else:
         head = "❌ Onigirazu: něco chybí."
 
-    lines = [head, status_line]
-    for label, ok, bad, new, total in groups:
-        lines += ["", f"{label}: {len(ok)}/{total}"]
-        lines += [f"• {n}" for n in ok]
-        lines += [f"✗ {n} ({why})" for n, why in bad]
-        if new:
-            lines += ["", "➕ Nové v menu (není v seznamu hlídaných):"] + [f"• {n}" for n in new]
+    total_all = sum(t for *_, t in groups)
+    ok_all = [n for _, ok, _, _, _ in groups for n in ok]
+    bad_all = [(n, why) for _, _, bad, _, _ in groups for n, why in bad]
+    summary = ", ".join(f"{label} {len(ok)}/{total}" for label, ok, _, _, total in groups)
+
+    lines = [head, status_line, summary, ""]
+    lines.append(f"✅ V menu ({len(ok_all)}/{total_all}):")
+    lines += [f"• {n}" for n in ok_all] or ["–"]
+    if bad_all:
+        lines += ["", "❌ Chybí / nedostupné:"] + [f"✗ {n} ({why})" for n, why in bad_all]
+    new_all = [n for _, _, _, new, _ in groups for n in new]
+    if new_all:
+        lines += ["", "➕ Nové v menu (není v seznamu hlídaných):"] + [f"• {n}" for n in new_all]
     lines += ["", WOLT_LINK]
     return "\n".join(lines)
 
